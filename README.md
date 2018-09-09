@@ -1,5 +1,2 @@
-## TODO
-Probably refactor the sync to make it a bit cleaner
-Handle checking for duplicates
-Add comments
-SNS notification with a summary perhaps?
+# Managing a Spotify Library with Go and AWS Lambda
+

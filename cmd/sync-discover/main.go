@@ -3,8 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-
-	log "github.com/sirupsen/logrus"
+	"log"
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws"
@@ -42,23 +41,26 @@ func handler() {
 		Bucket: aws.String(config.Bucket),
 		Key:    aws.String(config.TokenFile),
 	}); err != nil {
-		log.WithError(err).Fatal("failed to download token file from S3")
+		log.Fatalf("failed to download token file from S3: %v", err)
 	}
 
 	tok := new(oauth2.Token)
 	if err := json.Unmarshal(buff.Bytes(), tok); err != nil {
-		log.WithError(err).Fatal("could not unmarshal token")
+		log.Fatalf("could not unmarshal token: %v", err)
 	}
 
+	// Create a Spotify authenticator with the oauth2 token.
+	// If the token is expired, the oauth2 package will automatically refresh
+	// so the new token is checked against the old one to see if it should be updated.
 	client := spotify.NewAuthenticator("").NewClient(tok)
 
 	newToken, err := client.Token()
 	if err != nil {
-		log.WithError(err).Fatal("could not retrieve token from client")
+		log.Fatalf("could not retrieve token from client: %v", err)
 	}
 
 	if newToken.AccessToken != tok.AccessToken {
-		log.Info("got refreshed token, saving it")
+		log.Println("got refreshed token, saving it")
 
 		btys, err := json.Marshal(newToken)
 		if err != nil {
@@ -77,14 +79,17 @@ func handler() {
 
 	user, err := client.CurrentUser()
 	if err != nil {
-		log.WithError(err).Fatal("could not get user")
+		log.Fatalf("could not get user: %v", err)
 	}
 
+	// Retrieve the first 50 playlists for the user.
+	// @TODO update this to handle the paging in case there are more than 50 playlists.
 	playlists, err := client.GetPlaylistsForUser(user.ID)
 	if err != nil {
-		log.WithError(err).Fatal("could not get playlists")
+		log.Fatalf("could not get playlists: %v", err)
 	}
 
+	// Vars used to designate the Discover Weekly playlist and the target playlist.
 	var (
 		discoverID spotify.ID
 		targetID   spotify.ID
@@ -101,28 +106,33 @@ func handler() {
 		}
 	}
 
+	// Bail out if one of the playlists wasn't found.
 	if discoverID == "" || targetID == "" {
 		log.Fatal("did not get playlist IDs")
 	}
 
 	// Get songs from the Discover Weekly playlist.
+	// Don't need to worry about API limits here, since it always has 30 songs in it.
 	discoverPlaylist, err := client.GetPlaylist(user.ID, discoverID)
 	if err != nil {
-		log.WithError(err).Fatal("could not get Discover Weekly playlist")
+		log.Fatalf("could not get Discover Weekly playlist: %v", err)
 	}
 
-	// For each song, check if it is saved in the library.
+	// For each song in Discover Weekly, check if it is saved in the library.
 	trackIDs := make([]spotify.ID, 0, len(discoverPlaylist.Tracks.Tracks))
 
+	// Extract the Track IDs for each song.
 	for _, t := range discoverPlaylist.Tracks.Tracks {
 		trackIDs = append(trackIDs, t.Track.SimpleTrack.ID)
 	}
 
+	// Check if they are in the library.
 	hasTracks, err := client.UserHasTracks(trackIDs...)
 	if err != nil {
-		log.WithError(err).Fatal("could not check if tracks exist in library")
+		log.Fatalf("could not check if tracks exist in library: %v", err)
 	}
 
+	// Check which tracks came back in the library and mark them as songs to be added.
 	addTracks := make([]spotify.ID, 0, len(discoverPlaylist.Tracks.Tracks))
 	for i, b := range hasTracks {
 		if b {
@@ -130,11 +140,13 @@ func handler() {
 		}
 	}
 
-	// Add each saved song to the specified playlist.
+	// Add each song that needs to be added to the taret playlist.
+	// @TODO check for duplicates before adding them to the playlist.
 	_, err = client.AddTracksToPlaylist(user.ID, targetID, addTracks...)
 	if err != nil {
-		log.WithError(err).Fatal("could not add tracks to playlist")
+		log.Fatalf("could not add tracks to playlist: %v", err)
 	}
 
-	log.Infof("successfully added %d tracks to playlist %s", len(addTracks), config.TargetPlaylist)
+	// @TODO ship this off to SNS perhaps for an email summary.
+	log.Printf("successfully added %d tracks to playlist %s\n", len(addTracks), config.TargetPlaylist)
 }

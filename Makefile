@@ -1,4 +1,3 @@
-#!make
 include .env
 
 token:

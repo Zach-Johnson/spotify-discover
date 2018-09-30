@@ -27,7 +27,7 @@ var (
 	s3     *s3manager.Uploader
 	config struct {
 		Bucket    string `required:"true"`
-		TokenFile string `required:"true"`
+		TokenFile string `envconfig:"TOKEN_FILE" required:"true"`
 		Region    string `required:"true"`
 	}
 )
@@ -61,6 +61,7 @@ func main() {
 }
 
 func completeAuth(w http.ResponseWriter, r *http.Request) {
+	// Exchange the authorization code for a token.
 	tok, err := auth.Token(state, r)
 	if err != nil {
 		http.Error(w, "Couldn't get token", http.StatusForbidden)
@@ -72,16 +73,12 @@ func completeAuth(w http.ResponseWriter, r *http.Request) {
 		log.Fatalf("State mismatch: %s != %s\n", st, state)
 	}
 
-	// Use the token to get an authenticated client.
-	client := auth.NewClient(tok)
-	fmt.Fprintf(w, "Login Completed!")
-	ch <- &client
-
 	btys, err := json.Marshal(tok)
 	if err != nil {
 		log.Fatalf("could not marshal token: %v", err)
 	}
 
+	// Save the token to S3 for later use.
 	if _, err := s3.Upload(&s3manager.UploadInput{
 		Bucket: aws.String(config.Bucket),
 		Key:    aws.String(config.TokenFile),
@@ -89,4 +86,9 @@ func completeAuth(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		log.Fatalf("could not write token to s3: %v", err)
 	}
+
+	// Use the token to get an authenticated client.
+	client := auth.NewClient(tok)
+	fmt.Fprintf(w, "Login Completed!")
+	ch <- &client
 }

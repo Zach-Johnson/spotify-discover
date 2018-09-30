@@ -36,6 +36,7 @@ func handler() {
 	s3dl := s3manager.NewDownloader(sess)
 	s3ul := s3manager.NewUploader(sess)
 
+	// Download the token file from S3.
 	buff := &aws.WriteAtBuffer{}
 	if _, err = s3dl.Download(buff, &s3.GetObjectInput{
 		Bucket: aws.String(config.Bucket),
